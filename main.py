@@ -35,9 +35,17 @@ class HashTable:
     def lookup(self, key):
         index = self._hash(key)
         if self.table[index] is not None:
-            for k, v in self.table[index]:
+            for k, package in self.table[index]:
                 if k == key:
-                    return v
+                    return {
+                        'address': package.address,
+                        'deadline': package.delivery_deadline,
+                        'city': package.city,
+                        'zip_code': package.zip_code,
+                        'weight': package.weight,
+                        'status': package.status,
+                        'delivery_time': package.timestamp,
+                    }
         return None
 
     def delete(self, key):
@@ -50,6 +58,7 @@ class HashTable:
 
 
 packages_table = HashTable(50)
+total_distance = 0
 
 
 # A Package class to contain the format for a package data. Including package ID, Address, City, State, ZipCode,
@@ -58,7 +67,7 @@ packages_table = HashTable(50)
 # Space Complexity: O(1)
 class Package:
     def __init__(self, package_id, address, city, state, zip_code, delivery_deadline, weight, package_special_notes,
-                 timestamp=None, distance=None, status=None):
+                 timestamp=None, distance=None, status=None, truck_number=None):
         self.package_id = package_id
         self.address = address
         self.city = city
@@ -71,6 +80,7 @@ class Package:
         self.distance = distance
         self.status = status
         self.status_tracker = [{status, timestamp}]
+        self.truck_number = truck_number
 
     def __str__(self):
         return f"Package ID: {self.package_id}\n" \
@@ -83,7 +93,8 @@ class Package:
                f"Special Notes: {self.package_special_notes}\n" \
                f"Timestamp: {self.timestamp}\n" \
                f"Distance: {self.distance}\n" \
-               f"Status: {self.status}"
+               f"Status: {self.status}" \
+               f"Truck Number: {self.truck_number}"
 
 
 # Creates a package object from the passed in csv row from WGUPSpackage.csv
@@ -101,9 +112,10 @@ def create_package_from_csv_row(row):
     timestamp = datetime.strptime("2023-10-24 08:00:00", "%Y-%m-%d %H:%M:%S")  # initialize the time to 8:00am
     package_distance = 0.0  # initialize the distance to 0.0
     status = "At Hub"
+    truck_number = "Not Assigned"
 
     return Package(package_id, address, city, state, zip_code, delivery_deadline, weight, package_special_notes,
-                   timestamp, package_distance, status)
+                   timestamp, package_distance, status, truck_number)
 
 
 # Load package data into packages_table HashTable
@@ -163,163 +175,84 @@ truck_packages = {1: [], 2: []}
 truck_package_counts = {1: 0, 2: 0}
 # Stores distances of the route
 distances = []
-total_distance = 0
 
 
-# Load packages into truck which are priority, i.e. delivery deadline is before noon or contains special notes about
+# Loads trucks for their first load of packages in the morning.
+# BIG O: O(n)
+# Space Complexity: O(n)
+def load_morning_packages_into_trucks():
+    for package_id, package in packages_table:
+        i = 1
+        if package.package_id in ["1", "12", "40", "4", "17", "31", "37", "30"]:
+            truck_packages[i].append(package)
+            package.status = "In route"
+            package.status_tracker.append({package.status, package.timestamp})
+            package.truck_number = i
+            truck_package_counts[i] += 1
+            continue
+        i = 2
+        if package.package_id in ["8", "13", "39", "14", "15", "16", "20", "19", "21", "34", "19", "7", "29", "22"]:
+            truck_packages[i].append(package)
+            package.status = "In route"
+            package.status_tracker.append({package.status, package.timestamp})
+            package.truck_number = i
+            truck_package_counts[i] += 1
+            continue
+
+
+# Load packages into truck which need to be delivered after 9:05 AM and extra ones that can fit.
 # which packages it wants to be delivered with, etc.
 # BIG O: O(n)
 # Space Complexity: O(1)
-def load_packages_into_trucks():
+def load_mid_morning_packages_into_truck_one():
     # Load all packages that need to be delivered first, by their special note requirements and delivery deadlines.
     for package_id, package in packages_table:
-        i = 1
-        trucks_are_full = False
-        if truck_package_counts[1] == 16:
-            i = 2
-        if truck_package_counts[2] == 16:
-            trucks_are_full = True
-            break
-        if package.status == "At Hub" and package.delivery_deadline == "10:30 AM" and package.package_special_notes == "":
-            truck_packages[i].append(package)
-            truck_package_counts[i] += 1
+        if package.package_id in ["32", "28", "6", "2", "25", "26", "33", "24", "23", "11"]:
+            truck_packages[1].append(package)
             package.status = "In route"
             package.status_tracker.append({package.status, package.timestamp})
+            package.truck_number = 1
+            truck_package_counts[1] += 1
+
+
+# Loads truck 2 at 10:20 AM when some packages receive their updates.
+# Big O: O(n)
+# Space Complexity: O(n)
+def load_truck_2_on_return():
+    for package_id, package in packages_table:
+        if truck_package_counts[2] >= 16:
+            break
+        if package_id in ["9", "38", "36", "18", "5"]:
+            truck_packages[2].append(package)
+            package.status = "In route"
+            package.status_tracker.append({package.status, package.timestamp})
+            package.truck_number = 2
+            truck_package_counts[2] += 1
             continue
-        if package.status == "At Hub" and package.delivery_deadline == "10:30 AM" and package.package_special_notes != "":
-            if (package.package_special_notes in
-                    ["Must be delivered with 15, 19",
-                     "Must be delivered with 13, 19",
-                     "Must be delivered with 13, 15"]):
-                package.status = "In route"
-                package.status_tracker.append({package.status, package.timestamp})
-                truck_packages[2].append(package)
-                truck_package_counts[2] += 1
-                continue
+        if package.status == "At Hub" and package.package_special_notes == "Can only be on truck 2":
+            truck_packages[2].append(package)
+            package.status = "In route"
+            package.status_tracker.append({package.status, package.timestamp})
+            package.truck_number = 2
+            truck_package_counts[2] += 1
+            continue
+    for package_id, package in packages_table:
+        if truck_package_counts[2] >= 16:
+            break
         if package.status == "At Hub":
-            if package_id == "13" or package_id == "15" or package_id == "19":
-                truck_package_counts[2] += 1
-                package.status = "In route"
-                package.status_tracker.append({package.status, package.timestamp})
-                truck_packages[2].append(package)
-                continue
-            if package.package_special_notes == "Can only be on truck 2":
-                truck_package_counts[2] += 1
-                package.status = "In route"
-                package.status_tracker.append({package.status, package.timestamp})
-                truck_packages[2].append(package)
-                continue
-            if package.status == "At Hub" and trucks_are_full is False:
-                if package.package_special_notes == "":
-                    truck_packages[i].append(package)
-                    package.status = "In route"
-                    package.status_tracker.append({package.status, package.timestamp})
-                    truck_package_counts[i] += 1
+            truck_packages[2].append(package)
+            package.status = "In route"
+            package.status_tracker.append({package.status, package.timestamp})
+            package.truck_number = 2
+            truck_package_counts[2] += 1
 
 
 # Create a route for trucks to deliver the packages they have. The route is created by finding the closest data point
-# to the next by looping over the distance matrix with a min return.
+# to the next by looping over the distance matrix with a min return. The package indices are passed in along with the
+# distance matrix to create the optimized route.
 # BIG O: O(n^2)
 # Space Complexity: O(n)
-def find_nearest_neighbor_route(distance_matrix):
-    num_points = len(distance_matrix)
-    unvisited = list(range(num_points))
-    route = [0]
-    unvisited.remove(0)
-
-    while unvisited:
-        current_point = route[-1]
-        valid_distances = [(point, distance_matrix[point][current_point]) for point in unvisited if
-                           distance_matrix[point][current_point] is not None]
-
-        if valid_distances:
-            nearest_point, distance = min(valid_distances, key=lambda x: x[1])
-            distances.append(distance)
-            route.append(nearest_point)
-            unvisited.remove(nearest_point)
-        else:
-            nearest_point = unvisited.pop(0)
-            route.append(nearest_point)
-
-    return route
-
-
-# Deliver packages for each truck along their respective routes, comparing each point stopped at with the packages
-# given address and updating the status, timestamp, and distance each time they are delivered.
-# BIG O: O(n^2)
-# Space Complexity: O(1)
-def deliver_first_packages(truck_packages, distance_array, address_book):
-    routes = {}
-    for truck_number, packages in truck_packages.items():
-        optimized_route = find_nearest_neighbor_route(distance_array)  # Use the nearest-neighbor algorithm
-        routes[truck_number] = optimized_route
-
-    for truck_number, route in routes.items():
-        count = 0
-        for (address_numeric) in route:
-            address = list(address_book.address_dict.keys())[
-                list(address_book.address_dict.values()).index(address_numeric)]
-            count += 1
-            for package_id, package in packages_table:
-                if address_book.address_lookup(package.address) == address_numeric \
-                        and package in truck_packages[truck_number]:
-                    package.status = "Delivered"
-                    local_distance = 0
-                    for i in range(0, count):
-                        local_distance += distances[i]
-                    package.distance = local_distance
-                    time_change = timedelta(minutes=(local_distance / 18) * 60)
-                    package.timestamp = package.timestamp + time_change
-                    package.status_tracker.append({package.status, package.timestamp})
-                    truck_packages[truck_number].remove(package)
-
-
-# Loads the final packages needed to be delivered into one truck.
-# BIG O: O(n)
-# Space Complexity: O(1)
-def load_last_packages_into_truck_one():
-    for package_id, package in packages_table:
-        i = 1
-        processed = False
-        if package.status == "At Hub":
-            time_change = timedelta(minutes=(total_distance / 18) * 60)
-            package.timestamp = package.timestamp + time_change
-            if package.package_special_notes == "Delayed on flight---will not arrive to depot until 9:05 am":
-                time_string = "09:05:00"
-                string_to_time = datetime.strptime(time_string, "%H:%M:%S").time()
-                if datetime.time(package.timestamp) > string_to_time:
-                    if truck_package_counts[i] < 16:
-                        truck_packages[i].append(package)
-                        truck_package_counts[i] += 1
-                        package.status = "In route"
-                        package.status_tracker.append({package.status, package.timestamp})
-                        processed = True
-            # Reroute package with "Wrong address listed" if the time is after 10:20 AM.
-            if not processed and package.package_special_notes == "Wrong address listed":
-                initial_time_string = "10:20:00"
-                string_to_time = datetime.strptime(initial_time_string, "%H:%M:%S").time()
-                if datetime.time(package.timestamp) > string_to_time:
-                    package.address = "410 S State St"
-                    package.city = "Salt Lake City"
-                    package.state = "UT"
-                    package.zip_code = 84111
-                    if truck_package_counts[i] < 16:
-                        truck_packages[i].append(package)
-                        truck_package_counts[i] += 1
-                        package.status = "In route"
-                        package.status_tracker.append({package.status, package.timestamp})
-                        processed = True
-            if not processed:
-                truck_packages[1].append(package)
-                package.status = "In route"
-                package.status_tracker.append({package.status, package.timestamp})
-                truck_package_counts[i] += 1
-
-
-# Creates a new route consisting of only the remaining packages addresses.
-# BIG O: O(n^2)
-# Space Complexity: O(n)
-def find_nearest_neighbor_route_with_final_packages(distance_matrix, remaining_packages):
+def find_nearest_neighbor_route_and_distances(distance_matrix, remaining_packages):
     num_points = len(distance_matrix)
     unvisited = list(remaining_packages)
     route = [0]
@@ -327,8 +260,14 @@ def find_nearest_neighbor_route_with_final_packages(distance_matrix, remaining_p
     while unvisited:
         current_point = route[-1]
         valid_distances = []
+
         for point in unvisited:
-            distance = distance_matrix[point][current_point]
+            if point < current_point:
+                # Use the symmetry property to get distances from the lower part of the matrix
+                distance = distance_matrix[current_point][point]
+            else:
+                distance = distance_matrix[point][current_point]
+
             if distance is not None:
                 valid_distances.append((point, distance))
 
@@ -341,53 +280,107 @@ def find_nearest_neighbor_route_with_final_packages(distance_matrix, remaining_p
             nearest_point = unvisited.pop(0)
             route.append(nearest_point)
 
-    return route
+    return route, distances
 
 
-# Delivers the final packages loaded into truck one. Updates the packages when delivered. Calculates total distance.
+# Serves as a delivery function for entire program. Returns total distance and an object which
+# acts as a start time for the next truck.
 # BIG O: O(n^2)
 # Space Complexity: O(1)
-def deliver_final_packages(local_route):
+def deliver_packages(local_route, truck_number, distances, start_time):
     count = 0
-    for (address_numeric) in local_route:
+    time_change = timedelta(minutes=0)
+    total_distance = 0
+    local_time = start_time
+    for address_numeric in local_route:
         count += 1
         for package_id, package in packages_table:
             package_address_numeric = address_book.address_lookup(package.address)
-            if package_address_numeric == address_numeric and package in truck_packages[1]:
+            if package_address_numeric == address_numeric and package in truck_packages[truck_number]:
                 package.status = "Delivered"
+                package.truck_number = truck_number
                 local_distance = 0
                 for i in range(0, count):
-                    local_distance += distances[i]
-                new_total_distance = local_distance + total_distance
-                package.distance = new_total_distance
+                    local_distance += distances[i - 1]
+                package.distance = local_distance
                 time_change = timedelta(minutes=(local_distance / 18) * 60)
-                package.timestamp = package.timestamp + time_change
+                package.timestamp = start_time + time_change
                 package.status_tracker.append({package.status, package.timestamp})
-                truck_packages[1].remove(package)
-    new_total_distance = new_total_distance + distance_array[local_route[-1]][0]
-    print(f'Total distance: {new_total_distance}')
+                truck_packages[truck_number].remove(package)
+                truck_package_counts[truck_number] -= 1
+    total_distance += distance_array[local_route[-1]][0]
+    total_distance += sum(distances)
+    distances.clear()
+    time = local_time + time_change
+    return total_distance, time
 
 
-load_packages_into_trucks()
-deliver_first_packages(truck_packages, distance_array, address_book)
-total_distance = sum(distances) + 6.4
-# Create a list to store indices of remaining packages
-remaining_packages_indices = []
-# Iterate through the packages and add the indices of At Hub packages to the list
+load_morning_packages_into_trucks()
+package_indices = []
+# Each for loop is filling an array with the indices of the delivery locations for the correct truck.
+# BIG O: O(n)
+# Space complexity: O(m) where m is the number of packages meeting the specified conditions
 for package_id, package in packages_table:
-    if package.status == "At Hub" and package_id != "9":
-        remaining_packages_indices.append(
-            address_book.address_lookup(package.address))
+    if package.truck_number == 1:
+        if package.status == "In route" and package.package_id != "9":
+            package_indices.append(address_book.address_lookup(package.address))
+optimized_route, distances = find_nearest_neighbor_route_and_distances(distance_array, package_indices)
+distance, time = deliver_packages(optimized_route, 1, distances, datetime.strptime("2023-10-24 08:00:00",
+                                                                                   "%Y-%m-%d %H:%M:%S"))
+total_distance += distance
+start_time_truck_one = time
+
+package_indices.clear()
+# Each for loop is filling an array with the indices of the delivery locations for the correct truck.
+# BIG O: O(n)
+# Space complexity: O(m) where m is the number of packages meeting the specified conditions
+for package_id, package in packages_table:
+    if package.truck_number == 2:
+        if package.status == "In route" and package.package_id != "9":
+            package_indices.append(address_book.address_lookup(package.address))
+optimized_route, distances = find_nearest_neighbor_route_and_distances(distance_array, package_indices)
+distance, time = deliver_packages(optimized_route, 2, distances, datetime.strptime("2023-10-24 08:00:00",
+                                                                                   "%Y-%m-%d %H:%M:%S"))
+total_distance += distance
+start_time_truck_two = time
+load_mid_morning_packages_into_truck_one()
+
+package_indices_2 = []
+# Each for loop is filling an array with the indices of the delivery locations for the correct truck.
+# BIG O: O(n)
+# Space complexity: O(m) where m is the number of packages meeting the specified conditions
+for package_id, package in packages_table:
+    if package.truck_number == 1:
+        if package.status == "In route" and package.package_id != "9":
+            package_indices_2.append(address_book.address_lookup(package.address))
+optimized_route_2, distances = find_nearest_neighbor_route_and_distances(distance_array, package_indices_2)
+if start_time_truck_one <= datetime.strptime("2023-10-24 09:05:00", "%Y-%m-%d %H:%M:%S"):
+    start_time_truck_one = datetime.strptime("2023-10-24 09:05:00", "%Y-%m-%d %H:%M:%S")
+distance, time = deliver_packages(optimized_route_2, 1, distances, start_time_truck_one)
+total_distance += distance
+start_time_truck_one = time
+load_truck_2_on_return()
+package_indices_3 = []
+for package_id, package in packages_table:
     if package.package_id == "9":
-        remaining_packages_indices.append(19)
-load_last_packages_into_truck_one()
-new_route = find_nearest_neighbor_route_with_final_packages(distance_array, remaining_packages_indices)
-
-deliver_final_packages(new_route)
+        package.address = "410 S State St"
+        package.city = "Salt Lake City"
+        package.zip_code = "84111"
+        package.state = "UT"
+# Each for loop is filling an array with the indices of the delivery locations for the correct truck.
+# BIG O: O(n)
+# Space complexity: O(m) where m is the number of packages meeting the specified conditions
 for package_id, package in packages_table:
-    if package.status != "Delivered":
-        print("package not delivered", package)
-
+    if package.truck_number == 2:
+        if package.status == "In route":
+            package_indices_3.append(address_book.address_lookup(package.address))
+new_route, distances = find_nearest_neighbor_route_and_distances(distance_array, package_indices_3)
+if start_time_truck_two <= datetime.strptime("2023-10-24 10:20:00", "%Y-%m-%d %H:%M:%S"):
+    start_time_truck_two = datetime.strptime("2023-10-24 10:20:00", "%Y-%m-%d %H:%M:%S")
+distance, time = deliver_packages(new_route, 2, distances, start_time_truck_two)
+total_distance += distance
+start_time_truck_two = time
+print(f'Total distance: {total_distance}')
 print("End Of Day")
 
 
@@ -406,24 +399,70 @@ def check_package_status_at_time(package, timestamp):
 
     return "Status not available at {}".format(timestamp), None
 
-timestamp_str = input("Enter the timestamp to check package statuses (2023-10-24 HH:MM:SS):")
-# Uses @check_package_status_at_time to print the statuses at the given time.
-try:
-    # Convert the user input to a datetime object
-    timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
-    # Display package statuses at the specified time
-    print("\nPackage Statuses at {}: \n".format(timestamp_str))
+def display_package_data(package_id, package, timestamp):
+    # Lookup package data using your Hash Table lookup function
+    package_data = packages_table.lookup(str(package_id))
 
-    # Sort packages by ID in ascending order
-    sorted_packages = sorted(packages_table, key=lambda x: int(x[0]), reverse=False)
-
-    for package_id, package in sorted_packages:
+    if package_data is not None:
         status_at_time, delivered_time = check_package_status_at_time(package, timestamp)
+        truck_number = package.truck_number
         if delivered_time:
-            print("Package {}: {} at {}".format(package_id, status_at_time, delivered_time))
+            print(" {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                package_id,
+                package_data.get('address', ''),
+                package_data.get('deadline', ''),
+                package_data.get('city', ''),
+                package_data.get('zip_code', ''),
+                truck_number,
+                delivered_time,
+                status_at_time
+            ))
         else:
-            print("Package {}: {}".format(package_id, status_at_time))
+            print("Status at {}: {}".format(timestamp, status_at_time))
+    else:
+        print("Package data not found for ID: {}".format(package_id))
 
-except ValueError:
-    print("Invalid timestamp format. Please use YYYY-MM-DD HH:MM:SS.")
+
+sorted_packages = sorted(packages_table, key=lambda x: int(x[0]), reverse=False)
+check_user_intent = input("Would you like to check the Status of all packages by a certain time? Y/N")
+if check_user_intent == ("y" or "Y"):
+    timestamp_str = input("Enter the timestamp to check package statuses (2023-10-24 HH:MM:SS):")
+    timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+    print("ID | Delivery Address | Delivery Deadline | City | Zip Code | Truck Number | Status Change Time | Status")
+    for package_id, package in sorted_packages:
+        display_package_data(package_id, package, timestamp)
+else:
+    key = input("To check a certain package please type the package ID:")
+    try:
+        print(packages_table.lookup(str(key)))
+    except ValueError:
+        print("Invalid ID. Please use only numerals 1, 2, 10, 20, ect.")
+
+#     # Uses @check_package_status_at_time to print the statuses at the given time.
+#     try:
+#         # Convert the user input to a datetime object
+#         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+#
+#         # Display package statuses at the specified time
+#         print("\nPackage Statuses at {}: \n".format(timestamp_str))
+#
+#         # Sort packages by ID in ascending order
+#         sorted_packages = sorted(packages_table, key=lambda x: int(x[0]), reverse=False)
+#
+#         for package_id, package in sorted_packages:
+#             status_at_time, delivered_time = check_package_status_at_time(package, timestamp)
+#             truck_number = package.truck_number
+#             if delivered_time:
+#                 print(
+#                     "Package {}: {} at {} by Truck {}".format(package_id, status_at_time, delivered_time, truck_number))
+#             else:
+#                 print("Package {}: {}".format(package_id, status_at_time))
+#     except ValueError:
+#         print("Invalid timestamp format. Please use YYYY-MM-DD HH:MM:SS.")
+# else:
+#     key = input("To check a certain package please type the package ID:")
+#     try:
+#         print(packages_table.lookup(str(key)))
+#     except ValueError:
+#         print("Invalid ID. Please use only numerals 1, 2, 10, 20, ect.")
